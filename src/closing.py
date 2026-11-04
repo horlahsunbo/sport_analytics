@@ -70,8 +70,8 @@ def main():
     # 1-2. benchmarks
     t = pd.DataFrame({k: {"logloss": ll(v, y), "accuracy": (v.argmax(1) == y).mean()} for k, v in P.items()}).T
     md += ["## 1. Who predicts best? (log loss, lower is better)\n", t.round(4).to_markdown(), "\n"]
-    margin = pd.DataFrame({"avg pre-match": (1 / df[["odds_h", "odds_d", "odds_a"]]).sum(1) - 1,
-                           "Pinnacle open": (1 / df[PO]).sum(1) - 1, "Pinnacle close": (1 / df[PC]).sum(1) - 1}).median()
+    margin = pd.DataFrame({"avg pre-match": (1 / df[["odds_h", "odds_d", "odds_a"]]).sum(axis=1) - 1,
+                           "Pinnacle open": (1 / df[PO]).sum(axis=1) - 1, "Pinnacle close": (1 / df[PC]).sum(axis=1) - 1}).median()
     md.append("Median bookmaker margin: " + ", ".join(f"{k} {v:.1%}" for k, v in margin.items()) + "\n")
 
     # 3. betting at real closing prices
@@ -114,6 +114,30 @@ def main():
     rows.append(dict(model="random picks (baseline)", min_edge=np.nan, bets=len(df), mean_clv=clv_r.mean(),
                      ci_low=np.nan, ci_high=np.nan, share_beat_close=(clv_r > 0).mean()))
     md += [pd.DataFrame(rows).round(4).to_markdown(index=False), "\n"]
+
+    # 4b. CLV and ROI taking Pinnacle's OPENING price (low margin, available days before kickoff)
+    md.append("\n### 3b. Taking Pinnacle's opening price instead\n\nSame test, but we bet at Pinnacle's opening "
+              "odds (about 3% margin, available days before kickoff). Edge is judged against the de-vigged "
+              "opening price. ROI = actual profit at the opening odds.\n")
+    o_open = df[PO].to_numpy()
+    rows = []
+    for model in ("our stats model", "our hybrid model"):
+        p = P[model]
+        for thr in (0.0, 0.03, 0.05, 0.10):
+            ev = p * o_open - 1; pick = ev.argmax(1); mask = ev.max(1) > thr
+            idx = (np.flatnonzero(mask), pick[mask])
+            clv = o_open[idx] / fair_close[idx] - 1
+            prof = np.where(pick[mask] == y[mask], o_open[idx] - 1, -1.0)
+            c_lo, c_hi = boot_ci(clv, 400); r_lo, r_hi = boot_ci(prof, 400)
+            rows.append(dict(model=model, min_edge=thr, bets=int(mask.sum()), mean_clv=clv.mean(), clv_ci_low=c_lo,
+                             clv_ci_high=c_hi, share_beat_close=(clv > 0).mean(), roi=prof.mean(), roi_ci_low=r_lo,
+                             roi_ci_high=r_hi))
+    clv_r = o_open[np.arange(len(df)), rp] / fair_close[np.arange(len(df)), rp] - 1
+    rows.append(dict(model="random picks (baseline)", min_edge=np.nan, bets=len(df), mean_clv=clv_r.mean(),
+                     share_beat_close=(clv_r > 0).mean()))
+    md += [pd.DataFrame(rows).round(4).to_markdown(index=False), "\n",
+           "Caveat: football-data.co.uk's 'opening' odds are a snapshot taken days before kickoff, not the very "
+           "first price. In practice, sharp bettors are limited quickly at Pinnacle's opening lines.\n"]
 
     # 5. favourite-longshot bias at Pinnacle close
     md.append("\n## 4. Favourite-longshot bias at Pinnacle close\n\nHome win. gap = actual - priced; z > 3 is a real "

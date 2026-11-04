@@ -16,20 +16,27 @@ src/inseason.py           in-season test: first 10 matches of a season -> predic
 src/ratings.py            Elo engine: season reset toward league mean, early-season speed-up, shot rating
 src/tune_ratings.py       tunes rating parameters on 2005-2014, validates on 2015-2025
 src/compare_versions.py   paired comparison of two model versions on identical matches
+src/closing.py            closing-odds tests: Pinnacle benchmark, betting at closing prices, CLV, movement
 ```
 Run everything: `./run_all.sh`. Reports land in `reports/`.
 
-## Data (v1)
-238,854 matches, 38 leagues, 2000-2026 (xgabora/Club-Football-Match-Data, derived from
-football-data.co.uk + clubelo). Odds for 99% of matches; shots/corners for ~51%.
+## Data
+- 238,854 matches, 38 leagues, 2000-2026 (xgabora/Club-Football-Match-Data, derived from
+  football-data.co.uk + clubelo). Average pre-match odds for 99% of matches; shots/corners for ~51%.
+- football-data.co.uk (2012-13 onward): Pinnacle opening + closing odds on 94.9% of matches, average/best
+  closing odds from 2019-20, Betfair Exchange closing odds for non-European leagues from 2024.
+- Data issues found and fixed (swapped day/month in 16 leagues, 19,393 matches): `reports/data_quality.md`.
 
 ## Findings so far (out-of-sample, 175,537 matches, 2010-2025)
 | predictor | log loss | accuracy |
 |---|---|---|
-| bookmaker market | **1.0048** | 50.1% |
-| hybrid (stats + market) | 1.0075 | 50.0% |
-| stats only (v2) | 1.0199 | 49.0% |
+| bookmaker market (average pre-match odds) | **1.0048** | 50.1% |
+| hybrid (stats + market) | 1.0073 | 50.0% |
+| stats only (v2, dates fixed) | 1.0194 | 49.1% |
 | stats only (v1) | 1.0221 | 48.8% |
+
+On the 98,530 matches that also have Pinnacle odds: Pinnacle closing **1.0009**, Pinnacle opening 1.0040,
+average pre-match 1.0047, our hybrid 1.0071, our stats model 1.0156.
 | base rates | 1.0728 | 44.1% |
 
 1. **Stats alone do not beat the market**, in any league or season. When the stats model disagrees with
@@ -58,17 +65,33 @@ football-data.co.uk + clubelo). Odds for 99% of matches; shots/corners for ~51%.
    15 of 16 seasons), closing 13% of the gap to the market. The hybrid did not move (1.0076 -> 1.0075):
    the market already contains this information.
 
+7. **Closing odds: no edge against the sharpest price** (`reports/closing_report.md`). Pinnacle's closing
+   line is far sharper than the average odds we benchmarked against before (log loss 1.0009 vs 1.0047),
+   so our real gap to the market is about 0.006, not 0.0025. Betting our model at Pinnacle closing odds
+   loses 2-5%. At the *best* closing odds across bookmakers (2019+) the hybrid is about +0.5% to +1.1%,
+   but every confidence interval includes zero. Closing line value is negative even when taking Pinnacle's
+   opening price (-1.4% to -2.2%), though better than random picks (-3.2%): the model has a small sense of
+   where the line will move (correlation 0.1), but not enough to beat the margin.
+8. **The favourite-longshot bias was mostly an artefact.** With power de-vig at Pinnacle close, favourites
+   are close to fairly priced (largest z = 2.9). Backing 70-80% home favourites returns +1.4% at Pinnacle
+   close (CI -0.2% to +3.0%, not significant) and +2.4% at best close. The +2.5% earlier came from average
+   pre-match odds, which include softer bookmakers.
+9. **Closing prices are efficient.** After the line moves, results match the closing probability in every
+   movement bucket (all |z| < 2).
+
 ## Caveats
 - "Best odds" is the max across many bookmakers: an upper bound. Stale lines exist and sharp-winning
-  accounts get limited. Treat finding #2 as a lead to validate, not a strategy.
-- Odds are pre-match (not closing). Closing odds are the gold-standard benchmark.
-- Proportional de-vig slightly exaggerates favourite-longshot bias; Shin/power de-vig should be tested.
+  accounts get limited.
+- football-data.co.uk's "opening" odds are a snapshot days before kickoff, not the very first price.
+- `reports/inseason_report.md` was produced with v1 features and the pre-fix dates; re-run `src/inseason.py`
+  to refresh it.
 
 ## Roadmap (more data where it can actually add signal)
 - [x] Faster rating reset at season start + shot-weighted ratings (v2)
-- [ ] Closing odds (Pinnacle) to benchmark against the sharpest price
+- [x] Closing odds (Pinnacle) to benchmark against the sharpest price
 - [ ] xG / shot-quality data (Understat, FBref) - stronger than shots/goals
 - [ ] Lineups, injuries, transfers/market value (Transfermarkt) - information markets price late
-- [ ] Shin / power de-vig; probability calibration of the hybrid model
+- [x] Power de-vig (in closing.py)
+- [ ] Probability calibration of the hybrid model
 - [ ] Over/under & Asian handicap markets (less efficient than 1X2 in lower leagues)
 - [ ] Other sports via the same ingest -> features -> walk-forward -> analysis pattern
