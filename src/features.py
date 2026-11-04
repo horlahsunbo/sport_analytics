@@ -2,13 +2,25 @@
 available strictly before kickoff (stats are shifted by one match per team).
 Output: data/processed/features.parquet
 """
+import json
+import sys
 from pathlib import Path
 import numpy as np
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).parent))
+from ratings import compute_ratings  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 IN = ROOT / "data" / "processed" / "matches.parquet"
 OUT = ROOT / "data" / "processed" / "features.parquet"
+PARAMS = ROOT / "data" / "processed" / "rating_params.json"  # written by tune_ratings.py
+# Fallback = tuned values from reports/ratings_tuning.md
+DEFAULT_PARAMS = {
+    "goal": {"k": 15.0, "regress": 0.1, "k_early": 1.5, "regress_to": "league"},
+    "shot": {"w_shots": 1.0, "gd_mult": False, "hfa": 40.0, "k": 60.0, "regress": 0.2, "k_early": 1.0,
+             "regress_to": "league"},
+}
 
 COUNTRY = {  # team identity = (country, name) so promoted/relegated teams keep history
     "E0": "ENG", "E1": "ENG", "E2": "ENG", "E3": "ENG", "EC": "ENG",
@@ -16,30 +28,6 @@ COUNTRY = {  # team identity = (country, name) so promoted/relegated teams keep 
     "D1": "GER", "D2": "GER", "SP1": "ESP", "SP2": "ESP", "I1": "ITA", "I2": "ITA",
     "F1": "FRA", "F2": "FRA", "N1": "NED", "B1": "BEL", "P1": "POR", "T1": "TUR", "G1": "GRE",
 }
-
-
-# ---------------------------------------------------------------- Elo
-def elo_ratings(df, k=20.0, hfa=60.0, regress=0.2):
-    """Goal-difference-weighted Elo, regressed toward 1500 at each new season.
-    Returns pre-match ratings (home, away)."""
-    r, last_season = {}, {}
-    pre_h = np.empty(len(df)); pre_a = np.empty(len(df))
-    for i, (h, a, hg, ag, s) in enumerate(zip(df.home_id, df.away_id, df.hg, df.ag, df.season)):
-        for t in (h, a):
-            if t not in r:
-                r[t] = 1450.0  # new teams are usually promoted -> below average
-            elif last_season[t] != s:
-                r[t] = r[t] * (1 - regress) + 1500 * regress
-            last_season[t] = s
-        rh, ra = r[h], r[a]
-        pre_h[i], pre_a[i] = rh, ra
-        exp_h = 1 / (1 + 10 ** ((ra - rh - hfa) / 400))
-        res = 1.0 if hg > ag else 0.5 if hg == ag else 0.0
-        gd = abs(hg - ag)
-        mult = 1.0 if gd <= 1 else (1.5 if gd == 2 else (11 + gd) / 8)
-        delta = k * mult * (res - exp_h)
-        r[h] = rh + delta; r[a] = ra - delta
-    return pre_h, pre_a
 
 
 # ---------------------------------------------------------------- rolling team form
@@ -51,6 +39,10 @@ STATS = {  # long-format column: (home col, away col)
 }
 
 
+STD_COLS = ["pts", "gd", "sd", "sotd"]
+SEASON_OF = {}
+
+
 def team_form(df, halflives=(3, 10)):
     rows = []
     for side, other in (("home", "away"), ("away", "home")):
@@ -58,6 +50,9 @@ def team_form(df, halflives=(3, 10)):
                              "is_home": side == "home"})
         for name, (hc, ac) in STATS.items():
             part[name] = df[hc] if side == "home" else df[ac]
+        part["gd"] = part["gf"] - part["ga"]
+        part["sd"] = part["sf"] - part["sa"]
+        part["sotd"] = part["stf"] - part["sta"]
         part["pts"] = np.where(df.hg == df.ag, 1, np.where((df.hg > df.ag) == (side == "home"), 3, 0))
         rows.append(part)
     long = pd.concat(rows).sort_values(["team", "date", "match_id"]).reset_index(drop=True)
@@ -70,6 +65,18 @@ def team_form(df, halflives=(3, 10)):
         for c in cols:
             out[f"{c}_ew{hl}"] = ew[c].values
     out["n_prior"] = g.cumcount().values
+    # season-to-date averages: reset every season, strictly prior matches only
+    long["season"] = long["match_id"].map(SEASON_OF)
+    gs = long.groupby(["team", "season"], sort=False)
+    keys = [long["team"], long["season"]]
+    vals, present = long[STD_COLS].fillna(0), long[STD_COLS].notna().astype(int)
+    prior_sum = vals.groupby(keys).cumsum() - vals
+    prior_cnt = present.groupby(keys).cumsum() - present
+    std = prior_sum.where(prior_cnt > 0) / prior_cnt.where(prior_cnt > 0)
+    for c in STD_COLS:
+        out[f"std_{c}"] = std[c].values
+    out["std_n"] = gs.cumcount().values
+    out["n_shot_prior"] = (long["sd"].notna().groupby(long["team"]).cumsum() - long["sd"].notna()).values
     out["rest_days"] = g["date"].diff().dt.days.values
     feats = [c for c in out.columns if c not in ("match_id", "team", "is_home")]
     h = out[out.is_home].set_index("match_id")[feats].add_prefix("h_")
@@ -91,11 +98,20 @@ def main():
     ctry = df.league.map(COUNTRY).fillna(df.league)
     df["home_id"] = ctry + ":" + df.home
     df["away_id"] = ctry + ":" + df.away
-    df["elo_h"], df["elo_a"] = elo_ratings(df)
+    params = json.loads(PARAMS.read_text()) if PARAMS.exists() else DEFAULT_PARAMS
+    df["elo_h"], df["elo_a"], _, _ = compute_ratings(df, **params["goal"])
     df["elo_diff"] = df.elo_h - df.elo_a
+    df["selo_h"], df["selo_a"], _, _ = compute_ratings(df, **params["shot"])
+    SEASON_OF.update(dict(zip(df.match_id, df.season)))
     df = df.join(market_probs(df))
     form = team_form(df)
     df = df.merge(form, left_on="match_id", right_index=True, how="left")
+    # shot rating is only meaningful once a team has shot data
+    for side in ("h", "a"):
+        df.loc[df[f"{side}_n_shot_prior"] < 5, f"selo_{side}"] = np.nan
+    df["selo_diff"] = df.selo_h - df.selo_a
+    for c in ["std_pts", "std_gd", "std_sd", "std_sotd"]:
+        df[f"d_{c}"] = df[f"h_{c}"] - df[f"a_{c}"]
     for c in ["gf", "ga", "sf", "sa", "stf", "sta", "pts"]:
         for hl in (3, 10):
             df[f"d_{c}_ew{hl}"] = df[f"h_{c}_ew{hl}"] - df[f"a_{c}_ew{hl}"]

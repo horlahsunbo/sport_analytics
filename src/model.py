@@ -16,8 +16,9 @@ FEAT = ROOT / "data" / "processed" / "features.parquet"
 PRED = ROOT / "data" / "processed" / "predictions.parquet"
 REPORT = ROOT / "reports" / "model_report.md"
 
-STATS_FEATS = (["elo_h", "elo_a", "elo_diff", "lg_home_rate", "month", "h_rest_days", "a_rest_days",
-                "h_n_prior", "a_n_prior"]
+STATS_FEATS = (["elo_h", "elo_a", "elo_diff", "selo_h", "selo_a", "selo_diff", "lg_home_rate", "month",
+                "h_rest_days", "a_rest_days", "h_n_prior", "a_n_prior", "h_std_n", "a_std_n"]
+               + [f"{s}std_{c}" for s in ("h_", "a_", "d_") for c in ["pts", "gd", "sd", "sotd"]]
                + [f"{s}_{c}_ew{hl}" for s in ("h", "a") for c in
                   ["gf", "ga", "sf", "sa", "stf", "sta", "cf", "ca", "pts"] for hl in (3, 10)]
                + [f"d_{c}_ew{hl}" for c in ["gf", "ga", "sf", "sa", "stf", "sta", "pts"] for hl in (3, 10)])
