@@ -25,15 +25,107 @@ RENAME = {
 }
 
 
+# Leagues the xgabora dataset added from football-data.co.uk's "new" files. In these, every date with
+# day <= 12 has day and month swapped (dd/mm read as mm/dd): verified against football-data.co.uk,
+# 19,384 of 19,392 such matches only line up after swapping. See reports/data_quality.md.
+XGABORA_SWAPPED_DATE_LEAGUES = {"ARG", "AUT", "BRA", "CHN", "DEN", "FIN", "IRL", "JAP", "MEX", "NOR", "POL",
+                                "ROM", "RUS", "SUI", "SWE", "USA"}
+
+
+def fix_swapped_dates(df: pd.DataFrame) -> pd.DataFrame:
+    d = df["date"]
+    swap = df["league"].isin(XGABORA_SWAPPED_DATE_LEAGUES) & (d.dt.day <= 12) & (d.dt.day != d.dt.month)
+    fixed = pd.to_datetime(dict(year=d[swap].dt.year, month=d[swap].dt.day, day=d[swap].dt.month))
+    df.loc[swap, "date"] = fixed
+    print(f"fixed swapped day/month on {int(swap.sum()):,} matches in {df.loc[swap, 'league'].nunique()} leagues")
+    return df
+
+
 def load_xgabora() -> pd.DataFrame:
     df = pd.read_csv(RAW / "xgabora" / "Matches.csv", low_memory=False)
     df = df.rename(columns=RENAME)[list(RENAME.values())]
     df["date"] = pd.to_datetime(df["date"])
+    df = fix_swapped_dates(df)
     df["source"] = "xgabora"
     return df
 
 
 SOURCES = [load_xgabora]
+
+# ---------------------------------------------------------------- football-data.co.uk enrichment
+FD_LEAGUE = {"DNK": "DEN", "JPN": "JAP", "ROU": "ROM", "SWZ": "SUI"}  # their code -> ours
+FD_TEAM = {"Tigres UANL": "U.A.N.L.- Tigres", "UNAM Pumas": "U.N.A.M.- Pumas"}  # their name -> ours
+FD_ODDS = {  # canonical name: football-data column (H/D/A suffix appended)
+    "ps_open": "PS", "ps_close": "PSC", "avg_close": "AvgC", "max_close": "MaxC",
+    "bfe_close": "BFEC", "b365_close": "B365C",
+}
+
+
+def _read_fd(path):
+    try:
+        d = pd.read_csv(path, encoding="utf-8-sig", low_memory=False)
+    except UnicodeDecodeError:
+        d = pd.read_csv(path, encoding="latin-1", low_memory=False)
+    d.columns = [c.replace("\ufeff", "").replace("ï»¿", "").strip() for c in d.columns]
+    return d
+
+
+def load_footballdata() -> pd.DataFrame:
+    """Odds-only table keyed by (league, date, home, away). Used to ENRICH existing matches."""
+    frames = []
+    for f in sorted((RAW / "footballdata").glob("*/*.csv")):
+        d = _read_fd(f)
+        if "HomeTeam" in d:  # main-league files
+            d = d.rename(columns={"Div": "league", "HomeTeam": "home", "AwayTeam": "away", "FTHG": "hg", "FTAG": "ag"})
+        else:  # extra-league files
+            d = d.rename(columns={"Home": "home", "Away": "away", "HG": "hg", "AG": "ag"})
+            d["league"] = FD_LEAGUE.get(f.stem, f.stem)
+        d = d.dropna(subset=["home", "away", "Date"])
+        out = pd.DataFrame({"league": d["league"], "home": d["home"].str.strip().replace(FD_TEAM),
+                            "away": d["away"].str.strip().replace(FD_TEAM),
+                            "date": pd.to_datetime(d["Date"], dayfirst=True, format="mixed"),
+                            "fd_hg": pd.to_numeric(d["hg"], errors="coerce"),
+                            "fd_ag": pd.to_numeric(d["ag"], errors="coerce")})
+        for name, pre in FD_ODDS.items():
+            for o, suf in zip("hda", "HDA"):
+                col = pre + suf
+                out[f"{name}_{o}"] = pd.to_numeric(d[col], errors="coerce") if col in d else np.nan
+        frames.append(out)
+    fd = pd.concat(frames, ignore_index=True)
+    odds_cols = [c for c in fd.columns if c[-2:] in ("_h", "_d", "_a")]
+    fd[odds_cols] = fd[odds_cols].where(fd[odds_cols] > 1.0)
+    return fd.drop_duplicates(subset=["league", "date", "home", "away"])
+
+
+def enrich_footballdata(df: pd.DataFrame) -> pd.DataFrame:
+    """Attach football-data.co.uk odds. Exact (league, date, home, away) match first; then the same
+    fixture within +-2 days (kick-off times near midnight / timezone differences), checked by score."""
+    if not (RAW / "footballdata").exists():
+        print("football-data.co.uk files not found - skipping closing-odds enrichment")
+        return df
+    fd = load_footballdata()
+    keys = ["league", "date", "home", "away"]
+    m = df.merge(fd, on=keys, how="left", indicator=True)
+    hit = m["_merge"] == "both"
+    m = m.drop(columns="_merge")
+    # fallback: fuzzy date
+    miss = m.loc[~hit, ["match_id", "league", "date", "home", "away", "hg", "ag"]]
+    cand = miss.merge(fd, on=["league", "home", "away"], suffixes=("", "_fd"))
+    cand = cand[((cand.date - cand.date_fd).abs() <= pd.Timedelta(days=2)) & (cand.hg == cand.fd_hg) & (cand.ag == cand.fd_ag)]
+    cand = cand.drop_duplicates("match_id").set_index("match_id")
+    fill = [c for c in fd.columns if c not in keys]
+    m = m.set_index("match_id")
+    m.loc[cand.index, fill] = cand[fill]
+    m = m.reset_index()
+    matched = m["fd_hg"].notna()
+    # sanity: scores must agree
+    bad = matched & ((m.fd_hg != m.hg) | (m.fd_ag != m.ag))
+    m.loc[bad, fill] = np.nan
+    since = m.season >= 2012
+    print(f"football-data enrichment: {int(hit.sum()):,} exact + {len(cand):,} date-shifted matches; "
+          f"{int(bad.sum())} rejected for score mismatch; "
+          f"Pinnacle closing odds on {m.loc[since, 'ps_close_h'].notna().mean():.1%} of matches since 2012-13")
+    return m.drop(columns=["fd_hg", "fd_ag"])
 
 
 CALENDAR_LEAGUES = {"BRA", "CHN", "FIN", "IRL", "JAP", "NOR", "SWE", "USA"}
@@ -59,6 +151,7 @@ def main():
         df.loc[df[c] <= 1.0, c] = np.nan
     df = df.sort_values(["date", "league", "home"]).reset_index(drop=True)
     df["match_id"] = np.arange(len(df))
+    df = enrich_footballdata(df)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(OUT, index=False)
     print(f"wrote {len(df):,} matches, {df.league.nunique()} leagues, "
