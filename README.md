@@ -17,6 +17,8 @@ src/ratings.py            Elo engine: season reset toward league mean, early-sea
 src/tune_ratings.py       tunes rating parameters on 2005-2014, validates on 2015-2025
 src/compare_versions.py   paired comparison of two model versions on identical matches
 src/closing.py            closing-odds tests: Pinnacle benchmark, betting at closing prices, CLV, movement
+src/goal_ratings.py       dynamic Poisson attack/defence ratings for goals markets (+ tuning)
+src/totals.py             over/under 2.5 goals: walk-forward model and market tests
 ```
 Run everything: `./run_all.sh`. Reports land in `reports/`.
 
@@ -25,6 +27,8 @@ Run everything: `./run_all.sh`. Reports land in `reports/`.
   football-data.co.uk + clubelo). Average pre-match odds for 99% of matches; shots/corners for ~51%.
 - football-data.co.uk (2012-13 onward): Pinnacle opening + closing odds on 94.9% of matches, average/best
   closing odds from 2019-20, Betfair Exchange closing odds for non-European leagues from 2024.
+  Over/under 2.5: average/best odds from 2012-13, Pinnacle opening/closing from 2019-20 (22 European
+  leagues). Asian handicap lines and odds from 2019-20 (loaded, not yet modelled).
 - Data issues found and fixed (swapped day/month in 16 leagues, 19,393 matches): `reports/data_quality.md`.
 
 ## Findings so far (out-of-sample, 175,537 matches, 2010-2025)
@@ -79,6 +83,17 @@ average pre-match 1.0047, our hybrid 1.0071, our stats model 1.0156.
 9. **Closing prices are efficient.** After the line moves, results match the closing probability in every
    movement bucket (all |z| < 2).
 
+10. **Over/under 2.5 goals: same result, no edge** (`reports/totals_report.md`, 106,697 test matches;
+    46,823 with Pinnacle odds, 2019-2025). Log loss: Pinnacle close 0.6746, Pinnacle open 0.6770, average
+    odds 0.6772, our hybrid 0.6774, our stats model 0.6802 (coin flip 0.6931). Pinnacle's over/under price
+    is well calibrated at every level (all |z| < 1.2). Betting loses at every price tested; CLV at
+    Pinnacle's opening price is -2.8% to -3.1% (random side -3.9%). Lower divisions are the least
+    efficient part of the market relative to our model (gap to close 0.0019 vs 0.0039 in top flights)
+    and lose less (-0.5% to -3% vs -2% to -7%), but still lose. Scottish League One/Two show positive ROI
+    on about 1,000 matches each, with confidence intervals well across zero: most likely chance.
+    Goal ratings: a slow update speed and a moderate 20% season reset work best; the tuning surface is
+    flat, so the exact setting matters little (`reports/goal_ratings_tuning.md`).
+
 ## Caveats
 - "Best odds" is the max across many bookmakers: an upper bound. Stale lines exist and sharp-winning
   accounts get limited.
@@ -93,5 +108,6 @@ average pre-match 1.0047, our hybrid 1.0071, our stats model 1.0156.
 - [ ] Lineups, injuries, transfers/market value (Transfermarkt) - information markets price late
 - [x] Power de-vig (in closing.py)
 - [ ] Probability calibration of the hybrid model
-- [ ] Over/under & Asian handicap markets (less efficient than 1X2 in lower leagues)
+- [x] Over/under 2.5 goals (no edge; lower divisions least efficient but still negative)
+- [ ] Asian handicap (data loaded from 2019-20)
 - [ ] Other sports via the same ingest -> features -> walk-forward -> analysis pattern

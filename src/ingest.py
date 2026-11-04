@@ -54,6 +54,16 @@ SOURCES = [load_xgabora]
 
 # ---------------------------------------------------------------- football-data.co.uk enrichment
 FD_LEAGUE = {"DNK": "DEN", "JPN": "JAP", "ROU": "ROM", "SWZ": "SUI"}  # their code -> ours
+# Over/under 2.5 goals: canonical name -> candidate football-data columns (first one present wins).
+# Older files (2012-13..2018-19) only have Betbrain average/max ("BbAv"/"BbMx"); Pinnacle O/U from 2019-20.
+FD_OU = {
+    "ou_avg": ["Avg", "BbAv"], "ou_max": ["Max", "BbMx"], "ou_ps_open": ["P"], "ou_ps_close": ["PC"],
+    "ou_avg_close": ["AvgC"], "ou_max_close": ["MaxC"],
+}
+# Asian handicap (2019-20 onward): line (home handicap) + home/away odds, opening and closing.
+FD_AH = {"ah_line": "AHh", "ah_line_close": "AHCh", "ah_ps_open_h": "PAHH", "ah_ps_open_a": "PAHA",
+         "ah_ps_close_h": "PCAHH", "ah_ps_close_a": "PCAHA", "ah_avg_close_h": "AvgCAHH",
+         "ah_avg_close_a": "AvgCAHA", "ah_max_close_h": "MaxCAHH", "ah_max_close_a": "MaxCAHA"}
 FD_TEAM = {"Tigres UANL": "U.A.N.L.- Tigres", "UNAM Pumas": "U.N.A.M.- Pumas"}  # their name -> ours
 FD_ODDS = {  # canonical name: football-data column (H/D/A suffix appended)
     "ps_open": "PS", "ps_close": "PSC", "avg_close": "AvgC", "max_close": "MaxC",
@@ -90,9 +100,15 @@ def load_footballdata() -> pd.DataFrame:
             for o, suf in zip("hda", "HDA"):
                 col = pre + suf
                 out[f"{name}_{o}"] = pd.to_numeric(d[col], errors="coerce") if col in d else np.nan
+        for name, prefixes in FD_OU.items():
+            for o, sign in (("o", ">"), ("u", "<")):
+                col = next((p + sign + "2.5" for p in prefixes if p + sign + "2.5" in d), None)
+                out[f"{name}_{o}"] = pd.to_numeric(d[col], errors="coerce") if col else np.nan
+        for name, col in FD_AH.items():
+            out[name] = pd.to_numeric(d[col], errors="coerce") if col in d else np.nan
         frames.append(out)
     fd = pd.concat(frames, ignore_index=True)
-    odds_cols = [c for c in fd.columns if c[-2:] in ("_h", "_d", "_a")]
+    odds_cols = [c for c in fd.columns if c[-2:] in ("_h", "_d", "_a", "_o", "_u") and not c.startswith("ah_line")]
     fd[odds_cols] = fd[odds_cols].where(fd[odds_cols] > 1.0)
     return fd.drop_duplicates(subset=["league", "date", "home", "away"])
 

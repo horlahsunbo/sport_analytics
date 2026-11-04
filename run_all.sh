@@ -9,4 +9,6 @@ python3 src/model.py            # ~8 min: 16 walk-forward seasons x 2 models
 python3 src/analysis.py
 python3 src/analysis_controls.py
 python3 src/closing.py
+python3 src/goal_ratings.py     # ~1.5 min: tunes goal ratings
+python3 src/totals.py           # ~1.5 min: over/under 2.5
 python3 src/inseason.py         # ~10 min: in-season first-10 -> next-5 test
