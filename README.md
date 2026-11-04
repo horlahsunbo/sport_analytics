@@ -13,6 +13,9 @@ src/analysis.py           failure analysis: by league / favourite strength / pha
                           stats-vs-market disagreement, team predictability persistence
 src/analysis_controls.py  robustness: favourite-status-controlled persistence, bias profitability
 src/inseason.py           in-season test: first 10 matches of a season -> predict matches 11-15
+src/ratings.py            Elo engine: season reset toward league mean, early-season speed-up, shot rating
+src/tune_ratings.py       tunes rating parameters on 2005-2014, validates on 2015-2025
+src/compare_versions.py   paired comparison of two model versions on identical matches
 ```
 Run everything: `./run_all.sh`. Reports land in `reports/`.
 
@@ -24,8 +27,9 @@ football-data.co.uk + clubelo). Odds for 99% of matches; shots/corners for ~51%.
 | predictor | log loss | accuracy |
 |---|---|---|
 | bookmaker market | **1.0048** | 50.1% |
-| hybrid (stats + market) | 1.0076 | 50.0% |
-| stats only | 1.0222 | 48.8% |
+| hybrid (stats + market) | 1.0075 | 50.0% |
+| stats only (v2) | 1.0199 | 49.0% |
+| stats only (v1) | 1.0221 | 48.8% |
 | base rates | 1.0728 | 44.1% |
 
 1. **Stats alone do not beat the market**, in any league or season. When the stats model disagrees with
@@ -46,6 +50,14 @@ football-data.co.uk + clubelo). Odds for 99% of matches; shots/corners for ~51%.
    but "points above market expectation" has zero persistence (r = -0.02), so in-season form gives no
    edge vs the odds. No difference between predicting 1 vs 5 matches ahead.
 
+6. **v2: tuned season reset + shot rating + season-to-date stats** (`reports/ratings_tuning.md`,
+   `reports/v2_vs_v1.md`). A *strong* reset hurts; the best is a light 10% pull toward the mean of the
+   team's current league (not a global average, which erased the gap between divisions), plus 1.5x faster
+   updates in each team's first 10 matches. A separate rating learned from shots-on-target share adds
+   information on top. Stats-only log loss improved 1.0221 -> 1.0199 (95% CI -0.0027 to -0.0018, better in
+   15 of 16 seasons), closing 13% of the gap to the market. The hybrid did not move (1.0076 -> 1.0075):
+   the market already contains this information.
+
 ## Caveats
 - "Best odds" is the max across many bookmakers: an upper bound. Stale lines exist and sharp-winning
   accounts get limited. Treat finding #2 as a lead to validate, not a strategy.
@@ -53,7 +65,7 @@ football-data.co.uk + clubelo). Odds for 99% of matches; shots/corners for ~51%.
 - Proportional de-vig slightly exaggerates favourite-longshot bias; Shin/power de-vig should be tested.
 
 ## Roadmap (more data where it can actually add signal)
-- [ ] Faster rating reset at season start + shot-weighted ratings (from the in-season test)
+- [x] Faster rating reset at season start + shot-weighted ratings (v2)
 - [ ] Closing odds (Pinnacle) to benchmark against the sharpest price
 - [ ] xG / shot-quality data (Understat, FBref) - stronger than shots/goals
 - [ ] Lineups, injuries, transfers/market value (Transfermarkt) - information markets price late
