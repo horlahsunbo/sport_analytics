@@ -6,9 +6,18 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).parent))
+from ingest import fix_swapped_dates  # noqa: E402
+
 old = pd.read_parquet(ROOT / "data/processed/predictions_v1.parquet")
 new = pd.read_parquet(ROOT / "data/processed/predictions.parquet")
-m = old.merge(new, on="match_id", suffixes=("_v1", "_v2"))
+# match_id is a sort position and changes whenever dates are corrected, so pair on the fixture itself.
+# v1 files predate the day/month fix, so apply the same fix to their dates first.
+old = fix_swapped_dates(old)  # no-op on files built after the fix
+KEY = ["league", "date", "home", "away"]
+m = old.merge(new, on=KEY, suffixes=("_v1", "_v2"))
+assert (m.y_v1 == m.y_v2).all(), "paired matches disagree on the result"
+print(f"paired {len(m):,} of {len(old):,} v1 / {len(new):,} v2 matches")
 y = m.y_v1.to_numpy()
 
 
@@ -31,11 +40,11 @@ for name in ("stats", "hybrid"):
                      gap_closed=1 - (per[(name, "v2")].mean() - per[("market", "v1")].mean())
                      / (per[(name, "v1")].mean() - per[("market", "v1")].mean())))
 summary = pd.DataFrame(rows)
-m["early"] = np.where(m.date_v1.dt.month.isin([7, 8, 9]) | (m.league_v1.isin(["BRA", "CHN", "FIN", "IRL", "JAP", "NOR", "SWE", "USA"]) & m.date_v1.dt.month.isin([2, 3, 4])), "season start", "rest of season")
+m["early"] = np.where(m.date.dt.month.isin([7, 8, 9]) | (m.league.isin(["BRA", "CHN", "FIN", "IRL", "JAP", "NOR", "SWE", "USA"]) & m.date.dt.month.isin([2, 3, 4])), "season start", "rest of season")
 seg = pd.DataFrame({f"{n}_{v}": per[(n, v)] for n in ("market", "stats", "hybrid") for v in ("v1", "v2") if not (n == "market" and v == "v2")})
 seg["phase"] = m.early.values
 by_phase = seg.groupby("phase").mean()
-seg["season"] = m.season_v1.values
+seg["season"] = m.season_v2.values
 by_season = seg.groupby("season")[["stats_v1", "stats_v2", "hybrid_v1", "hybrid_v2", "market_v1"]].mean()
 md = ["# v2 (tuned season reset + shot rating + season-to-date stats) vs v1\n",
       f"Paired on {len(m):,} identical out-of-sample matches. Log loss, lower is better. "
