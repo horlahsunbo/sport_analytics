@@ -4,7 +4,8 @@ Sources
   xgabora          238k matches 2000-2026 with average pre-match odds, shots, Elo (GitHub mirror)
   football-data    football-data.co.uk: Pinnacle opening + closing odds, average/best closing odds,
                    Betfair Exchange closing odds. Closing odds exist from 2012-13 onwards.
-Usage: python3 src/download.py [xgabora|footballdata ...]   (default: all)
+  fixtures         football-data.co.uk upcoming fixtures with pre-match odds (European + extra leagues)
+Usage: python3 src/download.py [xgabora|footballdata|fixtures ...]   (default: all)
 """
 import sys
 import time
@@ -42,7 +43,19 @@ def download_xgabora(s):
         print(rel, fetch(url, RAW / rel, s))
 
 
-def download_footballdata(s, last_season=2025):
+def current_season(today=None):
+    import datetime as dt
+    today = today or dt.date.today()
+    return today.year if today.month >= 7 else today.year - 1
+
+
+def download_fixtures(s):
+    for name in ("fixtures.csv", "new_league_fixtures.csv"):
+        print(f"fixtures {name}:", fetch(f"{FD_BASE}/{name}", RAW / "fixtures" / name, s))
+
+
+def download_footballdata(s, last_season=None):
+    last_season = last_season or current_season()
     # past seasons never change -> cache them; always refresh the current season
     for start in range(FD_FIRST_SEASON, last_season + 1):
         code = f"{start % 100:02d}{(start + 1) % 100:02d}"
@@ -56,10 +69,12 @@ def download_footballdata(s, last_season=2025):
 
 
 if __name__ == "__main__":
-    which = sys.argv[1:] or ["xgabora", "footballdata"]
+    which = sys.argv[1:] or ["xgabora", "footballdata", "fixtures"]
     with requests.Session() as s:
         s.headers["User-Agent"] = "sport-analytics-research/1.0"
         if "xgabora" in which:
             download_xgabora(s)
         if "footballdata" in which:
             download_footballdata(s)
+        if "fixtures" in which:
+            download_fixtures(s)

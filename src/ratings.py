@@ -47,6 +47,8 @@ def compute_ratings(df: pd.DataFrame, k=20.0, hfa=60.0, regress=0.2, k_early=1.0
         rh, ra = r[h], r[a]
         pre_h[i], pre_a[i] = rh, ra
         idx_h[i], idx_a[i] = n_in_season[h], n_in_season[a]
+        if hg != hg or ag != ag:  # unplayed fixture: record pre-match values only
+            continue
         exp_h = 1.0 / (1.0 + 10.0 ** ((ra - rh - hfa) / 400.0))
         res = 1.0 if hg > ag else 0.5 if hg == ag else 0.0
         gd = abs(hg - ag)

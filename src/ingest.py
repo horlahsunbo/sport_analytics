@@ -64,6 +64,16 @@ FD_OU = {
 FD_AH = {"ah_line": "AHh", "ah_line_close": "AHCh", "ah_ps_open_h": "PAHH", "ah_ps_open_a": "PAHA",
          "ah_ps_close_h": "PCAHH", "ah_ps_close_a": "PCAHA", "ah_avg_close_h": "AvgCAHH",
          "ah_avg_close_a": "AvgCAHA", "ah_max_close_h": "MaxCAHH", "ah_max_close_a": "MaxCAHA"}
+# canonical match-table column -> football-data candidates (first present wins); pre-match first, then closing
+FD_ROW_COLS = {
+    "hthg": ["HTHG"], "htag": ["HTAG"], "hs": ["HS"], "as_": ["AS"], "hst": ["HST"], "ast": ["AST"],
+    "hc": ["HC"], "ac": ["AC"], "hf": ["HF"], "af": ["AF"], "hy": ["HY"], "ay": ["AY"], "hr": ["HR"], "ar": ["AR"],
+    "hxg": ["HxG"], "axg": ["AxG"],
+    "odds_h": ["AvgH", "BbAvH", "AvgCH", "B365H", "PSCH"], "odds_d": ["AvgD", "BbAvD", "AvgCD", "B365D", "PSCD"],
+    "odds_a": ["AvgA", "BbAvA", "AvgCA", "B365A", "PSCA"],
+    "max_h": ["MaxH", "BbMxH", "MaxCH"], "max_d": ["MaxD", "BbMxD", "MaxCD"], "max_a": ["MaxA", "BbMxA", "MaxCA"],
+    "odds_o25": ["Avg>2.5", "BbAv>2.5", "AvgC>2.5"], "odds_u25": ["Avg<2.5", "BbAv<2.5", "AvgC<2.5"],
+}
 FD_TEAM = {"Tigres UANL": "U.A.N.L.- Tigres", "UNAM Pumas": "U.N.A.M.- Pumas"}  # their name -> ours
 FD_ODDS = {  # canonical name: football-data column (H/D/A suffix appended)
     "ps_open": "PS", "ps_close": "PSC", "avg_close": "AvgC", "max_close": "MaxC",
@@ -106,6 +116,10 @@ def load_footballdata() -> pd.DataFrame:
                 out[f"{name}_{o}"] = pd.to_numeric(d[col], errors="coerce") if col else np.nan
         for name, col in FD_AH.items():
             out[name] = pd.to_numeric(d[col], errors="coerce") if col in d else np.nan
+        # match stats and pre-match odds, used when football-data rows are APPENDED as new matches
+        for name, cands in FD_ROW_COLS.items():
+            col = next((c for c in cands if c in d), None)
+            out[f"fdrow_{name}"] = pd.to_numeric(d[col], errors="coerce") if col else np.nan
         frames.append(out)
     fd = pd.concat(frames, ignore_index=True)
     odds_cols = [c for c in fd.columns if c[-2:] in ("_h", "_d", "_a", "_o", "_u") and not c.startswith("ah_line")]
@@ -141,7 +155,7 @@ def enrich_footballdata(df: pd.DataFrame) -> pd.DataFrame:
     print(f"football-data enrichment: {int(hit.sum()):,} exact + {len(cand):,} date-shifted matches; "
           f"{int(bad.sum())} rejected for score mismatch; "
           f"Pinnacle closing odds on {m.loc[since, 'ps_close_h'].notna().mean():.1%} of matches since 2012-13")
-    return m.drop(columns=["fd_hg", "fd_ag"])
+    return m.drop(columns=["fd_hg", "fd_ag"] + [c for c in m.columns if c.startswith("fdrow_")])
 
 
 CALENDAR_LEAGUES = {"BRA", "CHN", "FIN", "IRL", "JAP", "NOR", "SWE", "USA"}
@@ -156,8 +170,29 @@ def season_of(league: pd.Series, d: pd.Series) -> np.ndarray:
     return np.where(cal, d.dt.year, jul)
 
 
+def append_recent_footballdata(df: pd.DataFrame) -> pd.DataFrame:
+    """xgabora stops at different dates per league (Oct 2024 for the non-European leagues, Sep 2026 for
+    the European ones). Append football-data.co.uk matches played AFTER each league's last xgabora date.
+    Only strictly later dates are taken, so nothing can be double-counted under a different spelling."""
+    if not (RAW / "footballdata").exists():
+        return df
+    fd = load_footballdata()
+    last = df.groupby("league").date.max()
+    new = fd[fd.league.isin(last.index) & (fd.date > fd.league.map(last)) & fd.fd_hg.notna()].copy()
+    rows = pd.DataFrame({"league": new.league, "date": new.date, "home": new.home, "away": new.away,
+                         "hg": new.fd_hg, "ag": new.fd_ag,
+                         "result": np.where(new.fd_hg > new.fd_ag, "H", np.where(new.fd_hg < new.fd_ag, "A", "D"))})
+    for c in FD_ROW_COLS:
+        rows[c] = new[f"fdrow_{c}"].to_numpy()
+    rows["source"] = "footballdata"
+    print(f"appended {len(rows):,} football-data.co.uk matches after xgabora coverage "
+          f"({rows.league.nunique()} leagues, up to {rows.date.max().date() if len(rows) else '-'})")
+    return pd.concat([df, rows], ignore_index=True)
+
+
 def main():
     df = pd.concat([f() for f in SOURCES], ignore_index=True)
+    df = append_recent_footballdata(df)
     df = df.dropna(subset=["hg", "ag", "result"])
     df = df[df["result"].isin(["H", "D", "A"])]
     df = df.drop_duplicates(subset=["league", "date", "home", "away"], keep="first")

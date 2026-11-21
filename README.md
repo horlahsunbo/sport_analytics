@@ -19,6 +19,8 @@ src/compare_versions.py   paired comparison of two model versions on identical m
 src/closing.py            closing-odds tests: Pinnacle benchmark, betting at closing prices, CLV, movement
 src/goal_ratings.py       dynamic Poisson attack/defence ratings for goals markets (+ tuning)
 src/totals.py             over/under 2.5 goals: walk-forward model and market tests
+src/over15.py             over 1.5 goals: validation, international-break test, predictions for upcoming fixtures
+src/grade_predictions.py  scores a saved prediction file against actual results
 ```
 Run everything: `./run_all.sh`. Reports land in `reports/`.
 
@@ -93,6 +95,22 @@ average pre-match 1.0047, our hybrid 1.0071, our stats model 1.0156.
     on about 1,000 matches each, with confidence intervals well across zero: most likely chance.
     Goal ratings: a slow update speed and a moderate 20% season reset work best; the tuning surface is
     flat, so the exact setting matters little (`reports/goal_ratings_tuning.md`).
+
+11. **Over 1.5 goals and international breaks** (`reports/over15_validation.md`, 83,322 test matches,
+    2015-2025). Market-implied over 1.5 (from the over/under 2.5 odds) log loss 0.5571, our hybrid 0.5575,
+    stats 0.5592, base rate 0.5685; the hybrid is well calibrated (every bucket within 3 points). The first
+    round after an international break has slightly more goals: over 1.5 in 75.8% vs 74.3%, and the
+    market under-predicts it by about 1 point (CI +0.1 to +2.1). Our models include a break flag and show
+    no significant bias there. No 1.5 odds in the data, so betting returns are untested.
+
+## Weekly predictions
+```
+python3 src/download.py footballdata fixtures && python3 src/ingest.py && python3 src/features.py
+python3 src/over15.py YYYY-MM-DD           # writes predictions/YYYY-MM-DD_over15.csv + reports/predictions_*.md
+python3 src/grade_predictions.py predictions/YYYY-MM-DD_over15.csv   # after the matches
+```
+Data now runs to the current week: football-data.co.uk matches after the end of the xgabora dataset are
+appended automatically (`ingest.py::append_recent_footballdata`).
 
 ## Caveats
 - "Best odds" is the max across many bookmakers: an upper bound. Stale lines exist and sharp-winning

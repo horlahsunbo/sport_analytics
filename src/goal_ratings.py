@@ -58,6 +58,8 @@ def compute_goal_ratings(df, k=0.04, k_league=0.002, regress=0.2, k_early=1.5, n
         lh = np.exp(mu[lg] + hfa[lg] / 2 + att[h] + dfn[a])
         la = np.exp(mu[lg] - hfa[lg] / 2 + att[a] + dfn[h])
         out[i] = (lh, la, att[h], dfn[h], att[a], dfn[a])
+        if hg != hg or ag != ag:  # unplayed fixture: record pre-match values only
+            continue
         # observed signal: goals, optionally blended with shots-on-target x league conversion
         oh, oa = hg, ag
         if hst[i] == hst[i] and ast[i] == ast[i]:

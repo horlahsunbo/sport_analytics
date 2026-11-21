@@ -53,7 +53,8 @@ def team_form(df, halflives=(3, 10)):
         part["gd"] = part["gf"] - part["ga"]
         part["sd"] = part["sf"] - part["sa"]
         part["sotd"] = part["stf"] - part["sta"]
-        part["pts"] = np.where(df.hg == df.ag, 1, np.where((df.hg > df.ag) == (side == "home"), 3, 0))
+        part["pts"] = np.where(df.hg.isna(), np.nan,
+                               np.where(df.hg == df.ag, 1, np.where((df.hg > df.ag) == (side == "home"), 3, 0)))
         rows.append(part)
     long = pd.concat(rows).sort_values(["team", "date", "match_id"]).reset_index(drop=True)
     g = long.groupby("team", sort=False)
@@ -93,8 +94,33 @@ def market_probs(df):
                         index=df.index)
 
 
-def main():
-    df = pd.read_parquet(IN)
+def break_flags(df, min_gap=11):
+    """International-break detection, per league, from the fixture calendar itself.
+    A league 'resumes after a break' on the first match date that comes >= min_gap days after its previous
+    match date in the same season (excluding the season's first matchday). Matches within 4 days of that
+    resumption date form the post-break round. Leagues that play through a break (e.g. English National
+    League) are not flagged. Works for unplayed fixtures too: it only needs dates.
+    Winter breaks (resuming Jan/Feb) are flagged separately, since they are a different kind of pause."""
+    out = pd.Series(0, index=df.index); winter = pd.Series(0, index=df.index); gap_s = pd.Series(np.nan, index=df.index)
+    for (lg, ssn), g in df.groupby(["league", "season"]):
+        dates = np.sort(g.date.unique())
+        if len(dates) < 2:
+            continue
+        gaps = np.diff(dates).astype("timedelta64[D]").astype(int)
+        starts = dates[1:][gaps >= min_gap]
+        gap_of = dict(zip(dates[1:], gaps))
+        for st in starts:
+            m = (g.date >= st) & (g.date <= st + np.timedelta64(4, "D"))
+            is_winter = pd.Timestamp(st).month in (1, 2)
+            (winter if is_winter else out).loc[g.index[m]] = 1
+            gap_s.loc[g.index[m]] = gap_of[st]
+    return out.rename("post_break"), winter.rename("post_winter_break"), gap_s.rename("break_gap_days")
+
+
+def build(df):
+    """Add all pre-match features to a date-sorted match table. Rows without a result (fixtures) are
+    allowed: they receive features computed from earlier matches and never feed later ones."""
+    df = df.copy()
     ctry = df.league.map(COUNTRY).fillna(df.league)
     df["home_id"] = ctry + ":" + df.home
     df["away_id"] = ctry + ":" + df.away
@@ -116,10 +142,16 @@ def main():
         for hl in (3, 10):
             df[f"d_{c}_ew{hl}"] = df[f"h_{c}_ew{hl}"] - df[f"a_{c}_ew{hl}"]
     # league home-advantage prior: expanding home-win rate, prior matches only
-    df["is_hw"] = (df.result == "H").astype(float)
+    df["is_hw"] = np.where(df.result.isna(), np.nan, (df.result == "H").astype(float))
     df["lg_home_rate"] = df.groupby("league")["is_hw"].transform(lambda s: s.shift(1).expanding().mean())
     df["month"] = df.date.dt.month
     df["y"] = df.result.map({"H": 0, "D": 1, "A": 2})
+    df["post_break"], df["post_winter_break"], df["break_gap_days"] = break_flags(df)
+    return df
+
+
+def main():
+    df = build(pd.read_parquet(IN))
     df.to_parquet(OUT, index=False)
     print(f"wrote {len(df):,} rows x {df.shape[1]} cols -> {OUT}")
 
