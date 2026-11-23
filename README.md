@@ -22,6 +22,7 @@ src/totals.py             over/under 2.5 goals: walk-forward model and market te
 src/over15.py             over 1.5 goals: validation, international-break test, predictions for upcoming fixtures
 src/grade_predictions.py  scores a saved prediction file against actual results
 src/ou_backtest.py        frozen-data over/under backtest for one weekend + grading + filter checks vs 2015-2025
+src/apifootball.py        API-Football results (key held by the environment proxy; free plan = yesterday..tomorrow only)
 ```
 Run everything: `./run_all.sh`. Reports land in `reports/`.
 

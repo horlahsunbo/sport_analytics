@@ -195,13 +195,22 @@ def grade(line, freeze, start, end):
     p = pd.read_csv(path, parse_dates=["date"])
     res = pd.read_parquet(ROOT / "data/processed/matches.parquet")
     res = res[(res.date >= pd.Timestamp(start)) & (res.date <= pd.Timestamp(end))]
-    have_res = set(zip(res.league, res.date, res.home, res.away))
+    from apifootball import load_results as api_results
+    api = api_results()
+    api = api[(api.date >= pd.Timestamp(start)) & (api.date <= pd.Timestamp(end))]
+    known = set(zip(res.league, res.date, res.home, res.away))
+    api = api[[k not in known for k in zip(api.league, api.date, api.home, api.away)]]
+    res = pd.concat([res.assign(result_source="football-data"), api.assign(result_source="api-football")], ignore_index=True)
+    if len(api):
+        print(f"using {len(api)} API-Football results not yet in football-data.co.uk")
+    fd_res = res[res.result_source == "football-data"]
+    have_res = set(zip(fd_res.league, fd_res.date, fd_res.home, fd_res.away))
     missing_pred = [k for k in have_res if k not in set(zip(p.league, p.date, p.home, p.away))]
-    if missing_pred:  # results for matches not in the prediction file (e.g. Friday games) -> re-predict
+    if missing_pred and any(src == "football-data" for src in res.result_source):  # e.g. Friday games -> re-predict
         print(f"{len(missing_pred)} played matches were not in the prediction file; re-predicting from frozen data")
         p, path = predict(line, freeze, start, end)
         p["date"] = pd.to_datetime(p.date)
-    rc = ["league", "date", "home", "away", "hg", "ag", "ou_avg_close_o", "ou_avg_close_u"]
+    rc = ["league", "date", "home", "away", "hg", "ag", "ou_avg_close_o", "ou_avg_close_u", "result_source"]
     g = p.merge(res[rc], on=["league", "date", "home", "away"], how="left")
     done = g.hg.notna()
     md = [f"# Over {line} goals: frozen backtest {start} to {end}\n",

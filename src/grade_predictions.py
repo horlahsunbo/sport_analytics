@@ -20,6 +20,11 @@ def bll(p, y):
 def main(path):
     pred = pd.read_csv(path, parse_dates=["date"])
     res = pd.read_parquet(ROOT / "data/processed/matches.parquet", columns=["league", "date", "home", "away", "hg", "ag"])
+    sys.path.insert(0, str(Path(__file__).parent))
+    from apifootball import load_results as api_results
+    api = api_results()[["league", "date", "home", "away", "hg", "ag"]]
+    known = set(zip(res.league, res.date, res.home, res.away))
+    res = pd.concat([res, api[[k not in known for k in zip(api.league, api.date, api.home, api.away)]]], ignore_index=True)
     g = pred.merge(res, on=["league", "date", "home", "away"], how="left")
     done = g.hg.notna()
     g = g[done].copy()
