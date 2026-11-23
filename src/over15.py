@@ -188,7 +188,8 @@ def load_fixtures(start):
                        "home": fx.HomeTeam.str.strip(), "away": fx.AwayTeam.str.strip(),
                        "odds_h": fx.AvgH, "odds_d": fx.AvgD, "odds_a": fx.AvgA,
                        "max_h": fx.MaxH, "max_d": fx.MaxD, "max_a": fx.MaxA,
-                       "odds_o25": fx["Avg>2.5"], "odds_u25": fx["Avg<2.5"]})
+                       "odds_o25": fx["Avg>2.5"], "odds_u25": fx["Avg<2.5"],
+                       "ou_max_o": fx.get("Max>2.5"), "ou_max_u": fx.get("Max<2.5")})
     nx = pd.read_csv(ROOT / "data/raw/fixtures/new_league_fixtures.csv", encoding="utf-8-sig")
     ex = pd.DataFrame({"league": nx.Country.map(COUNTRY_CODE), "date": pd.to_datetime(nx.Date, dayfirst=True),
                        "time": nx.get("Time"), "home": nx.Home.str.strip().replace(FD_TEAM),

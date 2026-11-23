@@ -21,6 +21,7 @@ src/goal_ratings.py       dynamic Poisson attack/defence ratings for goals marke
 src/totals.py             over/under 2.5 goals: walk-forward model and market tests
 src/over15.py             over 1.5 goals: validation, international-break test, predictions for upcoming fixtures
 src/grade_predictions.py  scores a saved prediction file against actual results
+src/ou_backtest.py        frozen-data over/under backtest for one weekend + grading + filter checks vs 2015-2025
 ```
 Run everything: `./run_all.sh`. Reports land in `reports/`.
 
@@ -111,6 +112,12 @@ python3 src/grade_predictions.py predictions/YYYY-MM-DD_over15.csv   # after the
 ```
 Data now runs to the current week: football-data.co.uk matches after the end of the xgabora dataset are
 appended automatically (`ingest.py::append_recent_footballdata`).
+
+12. **Filters for over/under 2.5** (`src/ou_backtest.py`, 83,322 walk-forward matches 2015-2025). Raising the
+    confidence bar works for accuracy (model >= 65% on its side: 68.3% hit rate vs 56.7% overall) but the
+    market already expects most of it (66.4%), so no filter is profitable: -2.5% to -5.5% at average odds,
+    -2.1% to +1.4% at best odds, every confidence interval including or below zero. When the model
+    disagrees with the market by >5 points it is overconfident (expects 61%, lands 57%).
 
 ## Caveats
 - "Best odds" is the max across many bookmakers: an upper bound. Stale lines exist and sharp-winning
