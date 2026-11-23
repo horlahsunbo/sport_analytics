@@ -1,6 +1,6 @@
 # API-Football matching
 
-77 predicted matches paired with an API fixture (similarity >= 0.6); 75 of them finished (90-minute score used). Pairs from other days below 0.6 are simply different games and are ignored.
+77 predicted matches paired with an API fixture (similarity >= 0.6); 77 of them finished (90-minute score used). Pairs from other days below 0.6 are simply different games and are ignored.
 
 ## Same-day pairs below 0.8 similarity (check these)
 
@@ -55,7 +55,7 @@
 | I2       | 2026-11-22 | Avellino v Mantova                 | Avellino v Mantova                    |         1    | FT       |
 | MEX      | 2026-11-22 | U.A.N.L.- Tigres v Club America    | Tigres UANL v Club America            |         0.75 | FT       |
 | MEX      | 2026-11-22 | U.N.A.M.- Pumas v Monterrey        | U.N.A.M. - Pumas v Monterrey          |         1    | FT       |
-| MEX      | 2026-11-22 | Guadalajara Chivas v Cruz Azul     | Guadalajara Chivas v Cruz Azul        |         1    | 2H       |
+| MEX      | 2026-11-22 | Guadalajara Chivas v Cruz Azul     | Guadalajara Chivas v Cruz Azul        |         1    | FT       |
 | N1       | 2026-11-22 | Go Ahead Eagles v For Sittard      | GO Ahead Eagles v Fortuna Sittard     |         0.92 | FT       |
 | N1       | 2026-11-22 | Sparta Rotterdam v AZ Alkmaar      | Sparta Rotterdam v AZ Alkmaar         |         1    | FT       |
 | N1       | 2026-11-22 | Twente v Willem II                 | Twente v Willem II                    |         1    | FT       |
@@ -89,5 +89,5 @@
 | T1       | 2026-11-22 | Trabzonspor v Eyupspor             | Trabzonspor v Eyüpspor                |         1    | FT       |
 | T1       | 2026-11-22 | Konyaspor v Besiktas               | Konyaspor v Beşiktaş                  |         1    | FT       |
 | USA      | 2026-11-22 | Nashville SC v FC Cincinnati       | Nashville SC v FC Cincinnati          |         1    | FT       |
-| USA      | 2026-11-22 | Chicago Fire v Charlotte           | Chicago Fire v Charlotte              |         1    | 2H       |
+| USA      | 2026-11-22 | Chicago Fire v Charlotte           | Chicago Fire v Charlotte              |         1    | FT       |
 
