@@ -111,6 +111,8 @@ python3 src/download.py footballdata fixtures && python3 src/ingest.py && python
 python3 src/over15.py YYYY-MM-DD           # writes predictions/YYYY-MM-DD_over15.csv + reports/predictions_*.md
 python3 src/grade_predictions.py predictions/YYYY-MM-DD_over15.csv   # after the matches
 ```
+Results are also pulled daily from API-Football at 07:13 UTC (scheduled task) into
+`data/results/apifootball/<date>.csv` (committed; the free plan only reaches back one day).
 Data now runs to the current week: football-data.co.uk matches after the end of the xgabora dataset are
 appended automatically (`ingest.py::append_recent_footballdata`).
 

@@ -4,7 +4,9 @@ The key is injected by the environment's network proxy (saved as a network secre
 in code. Free plan: 100 requests/day and only dates from yesterday to tomorrow, so results must be
 pulled within a day of the match (football-data.co.uk remains the bulk historical source).
 
-  python3 src/apifootball.py fetch 2026-11-22        # one request per date, cached in data/raw/apifootball/
+  python3 src/apifootball.py fetch 2026-11-22        # one request per date ("yesterday" also accepted)
+                                                     # raw JSON -> data/raw/apifootball/ (not committed)
+                                                     # our 38 leagues -> data/results/apifootball/<date>.csv (committed)
   python3 src/apifootball.py match                   # map cached results onto our prediction files
 
 Team names differ from football-data.co.uk, so each predicted match is paired with the API fixture in the
@@ -23,6 +25,7 @@ import requests
 ROOT = Path(__file__).resolve().parents[1]
 RAW = ROOT / "data" / "raw" / "apifootball"
 OUT = ROOT / "data" / "processed" / "results_apifootball.parquet"
+COMPACT = ROOT / "data" / "results" / "apifootball"  # small, committed: survives container resets
 BASE = "https://v3.football.api-sports.io"
 # API league id -> (our code, expected country, expected league name) - verified against the API response
 LEAGUES = {
@@ -60,25 +63,41 @@ def fetch(date):
         raise SystemExit(f"API-Football error for {date}: {d['errors']}")
     RAW.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(d))
-    print(f"{date}: {d.get('results')} fixtures -> {path.relative_to(ROOT)}")
+    comp = parse(d["response"])
+    COMPACT.mkdir(parents=True, exist_ok=True)
+    comp.to_csv(COMPACT / f"{date}.csv", index=False)
+    fin = comp.status.isin(FINISHED).sum() if len(comp) else 0
+    print(f"{date}: {d.get('results')} fixtures worldwide; {len(comp)} in our leagues ({fin} finished) "
+          f"-> {(COMPACT / f'{date}.csv').relative_to(ROOT)}")
+
+
+def parse(response):
+    rows = []
+    for x in response:
+        lid = x["league"]["id"]
+        if lid not in LEAGUES:
+            continue
+        code, country, name = LEAGUES[lid]
+        if x["league"]["country"] != country:  # id/name drift guard
+            continue
+        ft = x["score"]["fulltime"]
+        rows.append({"league": code, "api_date": pd.Timestamp(x["fixture"]["date"]).tz_convert("Europe/London").tz_localize(None),
+                     "api_home": x["teams"]["home"]["name"], "api_away": x["teams"]["away"]["name"],
+                     "status": x["fixture"]["status"]["short"], "hg": ft["home"], "ag": ft["away"],
+                     "api_fixture_id": x["fixture"]["id"]})
+    return pd.DataFrame(rows)
 
 
 def api_results():
-    rows = []
-    for f in sorted(RAW.glob("fixtures_*.json")):
-        for x in json.loads(f.read_text())["response"]:
-            lid = x["league"]["id"]
-            if lid not in LEAGUES:
-                continue
-            code, country, name = LEAGUES[lid]
-            if x["league"]["country"] != country:  # id/name drift guard
-                continue
-            ft = x["score"]["fulltime"]
-            rows.append({"league": code, "api_date": pd.Timestamp(x["fixture"]["date"]).tz_convert("Europe/London").tz_localize(None),
-                         "api_home": x["teams"]["home"]["name"], "api_away": x["teams"]["away"]["name"],
-                         "status": x["fixture"]["status"]["short"], "hg": ft["home"], "ag": ft["away"],
-                         "api_fixture_id": x["fixture"]["id"]})
-    return pd.DataFrame(rows).drop_duplicates("api_fixture_id")
+    """All saved results: compact committed CSVs plus any raw JSON (later fetches of a date win)."""
+    frames = [pd.read_csv(f, parse_dates=["api_date"]) for f in sorted(COMPACT.glob("*.csv"))]
+    frames += [parse(json.loads(f.read_text())["response"]) for f in sorted(RAW.glob("fixtures_*.json"))]
+    frames = [f for f in frames if len(f)]
+    if not frames:
+        return pd.DataFrame(columns=["league", "api_date", "api_home", "api_away", "status", "hg", "ag", "api_fixture_id"])
+    allr = pd.concat(frames, ignore_index=True)
+    allr["fin"] = allr.status.isin(FINISHED)
+    return allr.sort_values("fin").drop_duplicates("api_fixture_id", keep="last").drop(columns="fin")
 
 
 def norm(name):
@@ -148,7 +167,10 @@ def match_prediction_files():
 
 if __name__ == "__main__":
     if sys.argv[1] == "fetch":
+        import datetime as dt
         for d in sys.argv[2:]:
+            if d == "yesterday":
+                d = (dt.datetime.now(dt.timezone.utc).date() - dt.timedelta(days=1)).isoformat()
             fetch(d)
     elif sys.argv[1] == "match":
         match_prediction_files()
