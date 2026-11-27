@@ -28,7 +28,16 @@ FD_BASE = "https://www.football-data.co.uk"
 def fetch(url, dest, session, skip_existing=False):
     if skip_existing and dest.exists() and dest.stat().st_size > 0:
         return "cached"
-    r = session.get(url, timeout=60)
+    for attempt in range(4):  # the site is volunteer-run and sometimes slow: retry with backoff
+        try:
+            r = session.get(url, timeout=90)
+            if r.status_code >= 500:
+                raise requests.HTTPError(f"{r.status_code} server error")
+            break
+        except requests.RequestException as e:
+            if attempt == 3:
+                return f"FAILED after 4 tries ({type(e).__name__}); kept previous copy" if dest.exists() else f"FAILED ({type(e).__name__})"
+            time.sleep(2 ** (attempt + 1))
     if r.status_code == 404:
         return "missing"
     r.raise_for_status()

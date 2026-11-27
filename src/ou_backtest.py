@@ -206,10 +206,21 @@ def grade(line, freeze, start, end):
     fd_res = res[res.result_source == "football-data"]
     have_res = set(zip(fd_res.league, fd_res.date, fd_res.home, fd_res.away))
     missing_pred = [k for k in have_res if k not in set(zip(p.league, p.date, p.home, p.away))]
-    if missing_pred and any(src == "football-data" for src in res.result_source):  # e.g. Friday games -> re-predict
-        print(f"{len(missing_pred)} played matches were not in the prediction file; re-predicting from frozen data")
-        p, path = predict(line, freeze, start, end)
-        p["date"] = pd.to_datetime(p.date)
+    if missing_pred and any(src == "football-data" for src in res.result_source):
+        # Played matches missing from the saved file: predict them from the SAME frozen data, but never overwrite
+        # the saved predictions - only append rows that are not already there.
+        print(f"{len(missing_pred)} played matches were not in the prediction file; predicting them from frozen data")
+        saved, original_bytes = p.copy(), path.read_bytes()
+        tmp, tmp_path = predict(line, freeze, start, end)
+        path.write_bytes(original_bytes)  # predict() writes to the same path: restore the original byte for byte
+        tmp["date"] = pd.to_datetime(tmp.date)
+        have = set(zip(saved.league, saved.date, saved.home, saved.away))
+        extra = tmp[[k not in have for k in zip(tmp.league, tmp.date, tmp.home, tmp.away)]]
+        extra = extra[[k in set(missing_pred) for k in zip(extra.league, extra.date, extra.home, extra.away)]]
+        if len(extra):
+            extra.to_csv(path.with_name(path.stem + "_added.csv"), index=False)
+            print(f"added {len(extra)} predictions (saved separately in {path.stem}_added.csv)")
+        p = pd.concat([saved, extra], ignore_index=True)
     rc = ["league", "date", "home", "away", "hg", "ag", "ou_avg_close_o", "ou_avg_close_u", "result_source"]
     g = p.merge(res[rc], on=["league", "date", "home", "away"], how="left")
     done = g.hg.notna()
