@@ -63,6 +63,6 @@ Raw over-1.5 rate across all history (2000-2026, no model):
 
 |            |   size |   mean |
 |:-----------|-------:|-------:|
-| other      | 230192 | 0.738  |
-| post-break |  20049 | 0.7555 |
+| other      | 230308 | 0.738  |
+| post-break |  20274 | 0.7555 |
 
